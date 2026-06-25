@@ -531,3 +531,51 @@ func TestImage_IsWindows(t *testing.T) {
 	i = StubImage("foo", "foo-project", []string{"license-foo", "windows-license"}, 100)
 	assert.True(t, i.IsWindows())
 }
+
+func TestStepCreateInstance_bulk(t *testing.T) {
+	state := testState(t)
+	step := new(StepCreateInstance)
+	defer step.Cleanup(state)
+
+	state.Put("ssh_public_key", "key")
+	step.GeneratedData = &packerbuilderdata.GeneratedData{State: state}
+
+	c := state.Get("config").(*Config)
+	c.UseBulkAPI = true
+	c.Zone = ""
+	c.Region = "us-east1"
+
+	d := state.Get("driver").(*common.DriverMock)
+	d.GetImageResult = StubImage("test-image", "test-project", []string{}, 100)
+	d.GetInstanceZoneResult = "us-east1-d"
+
+	assert.Equal(t, multistep.ActionContinue, step.Run(context.Background(), state),
+		"bulk Run should continue")
+
+	// The bulk driver method must have been used, not the classic one.
+	assert.NotNil(t, d.RunInstanceInRegionConfig, "RunInstanceInRegion should have been called")
+	assert.Nil(t, d.RunInstanceConfig, "classic RunInstance should NOT have been called")
+	assert.Equal(t, "us-east1", d.RunInstanceInRegionConfig.Region)
+
+	// The discovered zone must be stored in state.
+	zoneRaw, ok := state.GetOk("zone")
+	assert.True(t, ok, "state should carry the resolved zone")
+	assert.Equal(t, "us-east1-d", zoneRaw.(string))
+}
+
+func TestStepCreateInstance_classicSetsStateZone(t *testing.T) {
+	state := testState(t)
+	step := new(StepCreateInstance)
+	defer step.Cleanup(state)
+
+	state.Put("ssh_public_key", "key")
+	step.GeneratedData = &packerbuilderdata.GeneratedData{State: state}
+
+	c := state.Get("config").(*Config)
+	d := state.Get("driver").(*common.DriverMock)
+	d.GetImageResult = StubImage("test-image", "test-project", []string{}, 100)
+
+	assert.Equal(t, multistep.ActionContinue, step.Run(context.Background(), state))
+	zoneRaw, _ := state.GetOk("zone")
+	assert.Equal(t, c.Zone, zoneRaw.(string))
+}

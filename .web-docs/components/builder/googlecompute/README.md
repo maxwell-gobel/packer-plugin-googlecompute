@@ -265,7 +265,18 @@ builder.
 - `state_timeout` (duration string | ex: "1h5m2s") - The time to wait for instance state changes. Defaults to "5m".
 
 - `region` (string) - The region in which to launch the instance. Defaults to the region
-  hosting the specified zone.
+  hosting the specified zone. Required when `use_bulk_api` is true, in
+  which case the zone is selected automatically within this region.
+
+- `use_bulk_api` (bool) - Use the GCP Bulk VM creation API with automatic zone selection.
+  
+  When set to `true`, `region` must be specified and `zone` must be left
+  empty. Compute Engine selects a zone within the region that has available
+  capacity, which avoids single-zone quota and capacity failures.
+  
+  Note: `disk_attachment` entries that use `source_volume` or `replica_zones`
+  are not supported in this mode, because they require a fixed zone. Use an
+  explicit `zone` for those.
 
 - `scopes` ([]string) - The service account scopes for launched
   instance. Defaults to:

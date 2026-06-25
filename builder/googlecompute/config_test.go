@@ -828,6 +828,82 @@ func TestLabelsValidity(t *testing.T) {
 	}
 }
 
+func TestConfigBulkAPI(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(c map[string]interface{})
+		wantErr bool
+	}{
+		{
+			name: "bulk valid: region set, zone empty",
+			mutate: func(c map[string]interface{}) {
+				delete(c, "zone")
+				c["use_bulk_api"] = true
+				c["region"] = "us-east1"
+			},
+			wantErr: false,
+		},
+		{
+			name: "bulk missing region",
+			mutate: func(c map[string]interface{}) {
+				delete(c, "zone")
+				c["use_bulk_api"] = true
+			},
+			wantErr: true,
+		},
+		{
+			name: "bulk with zone set is an error",
+			mutate: func(c map[string]interface{}) {
+				c["use_bulk_api"] = true
+				c["region"] = "us-east1"
+				c["zone"] = "us-east1-a"
+			},
+			wantErr: true,
+		},
+		{
+			name: "bulk rejects source_volume disk",
+			mutate: func(c map[string]interface{}) {
+				delete(c, "zone")
+				c["use_bulk_api"] = true
+				c["region"] = "us-east1"
+				c["disk_attachment"] = []map[string]interface{}{
+					{"source_volume": "projects/p/zones/us-east1-a/disks/d"},
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "bulk rejects replica_zones disk",
+			mutate: func(c map[string]interface{}) {
+				delete(c, "zone")
+				c["use_bulk_api"] = true
+				c["region"] = "us-east1"
+				c["disk_attachment"] = []map[string]interface{}{
+					{"volume_type": "pd-ssd", "volume_size": 20, "replica_zones": []string{"us-east1-b"}},
+				}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, tempfile := testConfig(t)
+			defer os.Remove(tempfile)
+			tc.mutate(raw)
+
+			var c Config
+			_, err := c.Prepare(raw)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error, got none")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %s", err)
+			}
+		})
+	}
+}
+
 // Helper stuff below
 
 func testConfig(t *testing.T) (config map[string]interface{}, tempAccountFile string) {

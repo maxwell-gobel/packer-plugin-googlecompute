@@ -4,6 +4,7 @@
 package common
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -567,5 +568,60 @@ func TestIsRegion(t *testing.T) {
 	isRegion = IsZoneARegion(region)
 	if !isRegion {
 		t.Errorf("expected region %q to be a region, but isZoneARegion returned %t", region, isRegion)
+	}
+}
+
+func TestGenerateInlineDiskAttachment_scratch(t *testing.T) {
+	bd := BlockDevice{
+		VolumeType: LocalScratch,
+		VolumeSize: 375,
+	}
+	if errs := bd.Prepare(); len(errs) != 0 {
+		t.Fatalf("prepare failed: %v", errs)
+	}
+
+	att := bd.GenerateInlineDiskAttachment()
+	if att.Type != "SCRATCH" {
+		t.Fatalf("expected SCRATCH, got %q", att.Type)
+	}
+	if att.InitializeParams == nil {
+		t.Fatalf("expected InitializeParams to be set")
+	}
+	if att.InitializeParams.DiskType != "local-ssd" {
+		t.Fatalf("expected relative diskType local-ssd, got %q", att.InitializeParams.DiskType)
+	}
+	if strings.Contains(att.InitializeParams.DiskType, "zones/") {
+		t.Fatalf("diskType must be relative (no zones/ prefix): %q", att.InitializeParams.DiskType)
+	}
+}
+
+func TestGenerateInlineDiskAttachment_persistent(t *testing.T) {
+	bd := BlockDevice{
+		VolumeType: ZonalSSD, // "pd-ssd"
+		VolumeSize: 20,
+		DiskName:   "extra-disk",
+	}
+	if errs := bd.Prepare(); len(errs) != 0 {
+		t.Fatalf("prepare failed: %v", errs)
+	}
+
+	att := bd.GenerateInlineDiskAttachment()
+	if att.Type != "PERSISTENT" {
+		t.Fatalf("expected PERSISTENT, got %q", att.Type)
+	}
+	if att.Source != "" {
+		t.Fatalf("inline attachment must not set Source, got %q", att.Source)
+	}
+	if att.InitializeParams == nil {
+		t.Fatalf("expected InitializeParams to be set")
+	}
+	if att.InitializeParams.DiskType != "pd-ssd" {
+		t.Fatalf("expected relative diskType pd-ssd, got %q", att.InitializeParams.DiskType)
+	}
+	if att.InitializeParams.DiskName != "extra-disk" {
+		t.Fatalf("expected DiskName extra-disk, got %q", att.InitializeParams.DiskName)
+	}
+	if att.InitializeParams.DiskSizeGb != 20 {
+		t.Fatalf("expected DiskSizeGb 20, got %d", att.InitializeParams.DiskSizeGb)
 	}
 }

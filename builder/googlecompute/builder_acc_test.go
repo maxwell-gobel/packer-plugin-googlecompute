@@ -472,6 +472,41 @@ func TestAccBuilder_NetworkIP(t *testing.T) {
 	acctest.TestPlugin(t, testCase)
 }
 
+func TestAccBuilder_BulkAutoZone(t *testing.T) {
+	t.Parallel()
+
+	tmpl, err := testDataFs.ReadFile("testdata/bulk_auto_zone.pkr.hcl")
+	if err != nil {
+		t.Fatalf("failed to read testdata file %s", err)
+	}
+	testCase := &acctest.PluginTestCase{
+		Name:     "googlecompute-packer-bulk-auto-zone",
+		Template: string(tmpl),
+		Check: func(buildCommand *exec.Cmd, logfile string) error {
+			if buildCommand.ProcessState != nil {
+				if buildCommand.ProcessState.ExitCode() != 0 {
+					return fmt.Errorf("Bad exit code. Logfile: %s", logfile)
+				}
+			}
+
+			rawLogs, err := os.ReadFile(logfile)
+			if err != nil {
+				return fmt.Errorf("failed to read logfile %q: %s", logfile, err)
+			}
+			logs := string(rawLogs)
+
+			// Proves the bulk path ran and a zone was selected at runtime.
+			if !strings.Contains(logs, "automatic zone selection") &&
+				!strings.Contains(logs, "automatically selected zone") {
+				return fmt.Errorf("did not find evidence of bulk automatic zone selection in logs. Logfile: %s", logfile)
+			}
+
+			return nil
+		},
+	}
+	acctest.TestPlugin(t, testCase)
+}
+
 func TestAccBuilder_CustomEndpointsAndUniverse(t *testing.T) {
 	t.Parallel()
 

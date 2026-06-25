@@ -257,7 +257,6 @@ func (s *StepStartTunnel) Run(ctx context.Context, state multistep.StateBag) mul
 	// shell out to create the tunnel.
 	ui := state.Get("ui").(packersdk.Ui)
 	instanceName := state.Get("instance_name").(string)
-	c := state.Get("config").(*Config)
 
 	ui.Say("Step Launch IAP Tunnel...")
 
@@ -272,7 +271,7 @@ func (s *StepStartTunnel) Run(ctx context.Context, state multistep.StateBag) mul
 	args := []string{"compute", "start-iap-tunnel", instanceName,
 		strconv.Itoa(s.CommConf.Port()),
 		fmt.Sprintf("--local-host-port=localhost:%d", s.IAPConf.IAPLocalhostPort),
-		"--zone", c.Zone, "--project", s.ProjectId,
+		"--zone", stateZone(state), "--project", s.ProjectId,
 	}
 
 	if s.ImpersonateAccount != "" {

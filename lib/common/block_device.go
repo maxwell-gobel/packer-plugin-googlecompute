@@ -371,3 +371,46 @@ func (bd BlockDevice) GenerateDiskAttachment() *compute.AttachedDisk {
 
 	return disk
 }
+
+// GenerateInlineDiskAttachment builds an AttachedDisk that creates its disk
+// inline (via InitializeParams) using a relative diskType, with no zone or
+// region qualifier. This is used by the bulk-insert path, where the instance
+// zone is chosen by Compute Engine and is therefore unknown when the request
+// is built.
+//
+// It must only be called for scratch or non-replicated persistent disks that
+// are not backed by a pre-existing SourceVolume; config validation rejects
+// source_volume and replica_zones in bulk mode (see Config.Prepare).
+func (bd BlockDevice) GenerateInlineDiskAttachment() *compute.AttachedDisk {
+	if bd.VolumeType == LocalScratch {
+		return &compute.AttachedDisk{
+			AutoDelete:        true,
+			Boot:              false,
+			DiskEncryptionKey: bd.DiskEncryptionKey.ComputeType(),
+			DiskSizeGb:        int64(bd.VolumeSize),
+			Interface:         bd.InterfaceType,
+			Mode:              bd.AttachmentMode,
+			Type:              "SCRATCH",
+			InitializeParams: &compute.AttachedDiskInitializeParams{
+				DiskType:    "local-ssd",
+				SourceImage: bd.SourceImage,
+			},
+		}
+	}
+
+	return &compute.AttachedDisk{
+		AutoDelete:        bd.shouldAutoDelete(),
+		Boot:              false,
+		DeviceName:        bd.DeviceName,
+		Interface:         bd.InterfaceType,
+		Mode:              bd.AttachmentMode,
+		DiskEncryptionKey: bd.DiskEncryptionKey.ComputeType(),
+		Type:              "PERSISTENT",
+		InitializeParams: &compute.AttachedDiskInitializeParams{
+			DiskName:    bd.DiskName,
+			DiskSizeGb:  int64(bd.VolumeSize),
+			DiskType:    string(bd.VolumeType),
+			SourceImage: bd.SourceImage,
+		},
+	}
+}

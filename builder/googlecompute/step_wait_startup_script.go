@@ -46,7 +46,7 @@ func (s *StepWaitStartupScript) Run(ctx context.Context, state multistep.StateBa
 		},
 		RetryDelay: (&retry.Backoff{InitialBackoff: 10 * time.Second, MaxBackoff: 60 * time.Second, Multiplier: 2}).Linear,
 	}.Run(ctx, func(ctx context.Context) error {
-		status, err := driver.GetInstanceMetadata(config.Zone,
+		status, err := driver.GetInstanceMetadata(stateZone(state),
 			instanceName, StartupScriptStatusKey)
 
 		if err != nil {

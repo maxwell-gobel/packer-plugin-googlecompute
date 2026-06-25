@@ -23,6 +23,7 @@ func TestStepWaitStartupScript(t *testing.T) {
 	testInstanceName := "test-instance-name"
 
 	c.Zone = testZone
+	state.Put("zone", testZone)
 	state.Put("instance_name", testInstanceName)
 
 	// This step stops when it gets Done back from the metadata.
@@ -66,6 +67,7 @@ func TestStepWaitStartupScript_withWrapStartupScript(t *testing.T) {
 			c.StartupScriptFile = "startup.sh"
 			c.WrapStartupScriptFile = tc.WrapStartup
 			c.Zone = tc.Zone
+			state.Put("zone", tc.Zone)
 			state.Put("instance_name", tc.MetadataName)
 
 			// This step stops when it gets Done back from the metadata.
