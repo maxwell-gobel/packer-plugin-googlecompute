@@ -84,6 +84,10 @@ type DriverMock struct {
 	GetNatIPResult string
 	GetNatIPErr    error
 
+	GetInstanceZoneName   string
+	GetInstanceZoneResult string
+	GetInstanceZoneErr    error
+
 	GetInternalIPZone   string
 	GetInternalIPName   string
 	GetInternalIPResult string
@@ -101,6 +105,10 @@ type DriverMock struct {
 	RunInstanceConfig *InstanceConfig
 	RunInstanceErrCh  <-chan error
 	RunInstanceErr    error
+
+	RunInstanceInRegionConfig *InstanceConfig
+	RunInstanceInRegionErrCh  <-chan error
+	RunInstanceInRegionErr    error
 
 	CreateOrResetWindowsPasswordZone     string
 	CreateOrResetWindowsPasswordInstance string
@@ -316,6 +324,11 @@ func (d *DriverMock) GetNatIP(zone, name string) (string, error) {
 	return d.GetNatIPResult, d.GetNatIPErr
 }
 
+func (d *DriverMock) GetInstanceZone(name string) (string, error) {
+	d.GetInstanceZoneName = name
+	return d.GetInstanceZoneResult, d.GetInstanceZoneErr
+}
+
 func (d *DriverMock) GetInternalIP(zone, name string) (string, error) {
 	d.GetInternalIPZone = zone
 	d.GetInternalIPName = name
@@ -345,6 +358,19 @@ func (d *DriverMock) RunInstance(c *InstanceConfig) (<-chan error, error) {
 	}
 
 	return resultCh, d.RunInstanceErr
+}
+
+func (d *DriverMock) RunInstanceInRegion(c *InstanceConfig) (<-chan error, error) {
+	d.RunInstanceInRegionConfig = c
+
+	resultCh := d.RunInstanceInRegionErrCh
+	if resultCh == nil {
+		ch := make(chan error)
+		close(ch)
+		resultCh = ch
+	}
+
+	return resultCh, d.RunInstanceInRegionErr
 }
 
 func (d *DriverMock) WaitForInstance(state, zone, name string) <-chan error {

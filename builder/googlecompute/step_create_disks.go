@@ -30,6 +30,11 @@ func (s *StepCreateDisks) Run(ctx context.Context, state multistep.StateBag) mul
 	driver := state.Get("driver").(common.Driver)
 	config := state.Get("config").(*Config)
 
+	if config.UseBulkAPI {
+		ui.Say("Skipping persistent disk pre-creation (use_bulk_api: disks are created inline with the instance)")
+		return multistep.ActionContinue
+	}
+
 	for i, disk := range s.DiskConfiguration {
 		if disk.VolumeType == common.LocalScratch {
 			continue
@@ -57,7 +62,7 @@ func (s *StepCreateDisks) Run(ctx context.Context, state multistep.StateBag) mul
 		}
 
 		if len(disk.ReplicaZones) != 0 {
-			region, _ := common.GetRegionFromZone(config.Zone)
+			region, _ := common.GetRegionFromZone(stateZone(state))
 			// Generate the source URI for attachment later
 			s.DiskConfiguration[i].SourceVolume = fmt.Sprintf("projects/%s/regions/%s/disks/%s",
 				config.ProjectId,
@@ -67,7 +72,7 @@ func (s *StepCreateDisks) Run(ctx context.Context, state multistep.StateBag) mul
 			// Generate the source URI for attachment later
 			s.DiskConfiguration[i].SourceVolume = fmt.Sprintf("projects/%s/zones/%s/disks/%s",
 				config.ProjectId,
-				config.Zone,
+				stateZone(state),
 				disk.DiskName)
 		}
 	}
@@ -108,7 +113,7 @@ func (s *StepCreateDisks) Cleanup(state multistep.StateBag) {
 			continue
 		}
 
-		zone := config.Zone
+		zone := stateZone(state)
 		if len(gceDisk.ReplicaZones) != 0 {
 			zone, _ = common.GetRegionFromZone(zone)
 		}

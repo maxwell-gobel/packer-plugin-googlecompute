@@ -29,7 +29,7 @@ func (s *StepInstanceInfo) Run(ctx context.Context, state multistep.StateBag) mu
 	instanceName := state.Get("instance_name").(string)
 
 	ui.Say("Waiting for the instance to become running...")
-	errCh := driver.WaitForInstance("RUNNING", config.Zone, instanceName)
+	errCh := driver.WaitForInstance("RUNNING", stateZone(state), instanceName)
 	var err error
 	select {
 	case err = <-errCh:
@@ -45,7 +45,7 @@ func (s *StepInstanceInfo) Run(ctx context.Context, state multistep.StateBag) mu
 	}
 
 	if config.UseInternalIP {
-		ip, err := driver.GetInternalIP(config.Zone, instanceName)
+		ip, err := driver.GetInternalIP(stateZone(state), instanceName)
 		if err != nil {
 			err := fmt.Errorf("Error retrieving instance internal ip address: %s", err)
 			state.Put("error", err)
@@ -62,7 +62,7 @@ func (s *StepInstanceInfo) Run(ctx context.Context, state multistep.StateBag) mu
 		state.Put("instance_ip", ip)
 		return multistep.ActionContinue
 	} else {
-		ip, err := driver.GetNatIP(config.Zone, instanceName)
+		ip, err := driver.GetNatIP(stateZone(state), instanceName)
 		if err != nil {
 			err := fmt.Errorf("Error retrieving instance nat ip address: %s", err)
 			state.Put("error", err)

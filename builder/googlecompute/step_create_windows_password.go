@@ -91,7 +91,7 @@ func (s *StepCreateWindowsPassword) Run(ctx context.Context, state multistep.Sta
 		}
 	}
 
-	errCh, err := d.CreateOrResetWindowsPassword(name, c.Zone, &data)
+	errCh, err := d.CreateOrResetWindowsPassword(name, stateZone(state), &data)
 
 	if err == nil {
 		ui.Message("Waiting for windows password to complete...")

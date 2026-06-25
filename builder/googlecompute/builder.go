@@ -67,6 +67,9 @@ func (b *Builder) Run(ctx context.Context, ui packersdk.Ui, hook packersdk.Hook)
 	state.Put("driver", driver)
 	state.Put("hook", hook)
 	state.Put("ui", ui)
+	// Seed the resolved zone. In classic mode this is the configured zone;
+	// in bulk mode it is empty until StepCreateInstance discovers it.
+	state.Put("zone", b.config.Zone)
 	generatedData := &packerbuilderdata.GeneratedData{State: state}
 
 	// Build the steps.
@@ -133,6 +136,12 @@ func (b *Builder) Run(ctx context.Context, ui packersdk.Ui, hook packersdk.Hook)
 	if _, ok := state.GetOk("image"); !ok {
 		log.Println("Failed to find image in state. Bug?")
 		return nil, nil
+	}
+
+	// The artifact reports BuildZone/region from config; in bulk mode the zone
+	// was selected at runtime, so backfill it from state.
+	if zoneRaw, ok := state.GetOk("zone"); ok {
+		b.config.Zone = zoneRaw.(string)
 	}
 
 	artifact := &Artifact{

@@ -14,12 +14,14 @@ import (
 
 func testState(t *testing.T) multistep.StateBag {
 	state := new(multistep.BasicStateBag)
-	state.Put("config", testConfigStruct(t))
+	cfg := testConfigStruct(t)
+	state.Put("config", cfg)
 	state.Put("driver", &common.DriverMock{})
 	state.Put("hook", &packersdk.MockHook{})
 	state.Put("ui", &packersdk.BasicUi{
 		Reader: new(bytes.Buffer),
 		Writer: new(bytes.Buffer),
 	})
+	state.Put("zone", cfg.Zone)
 	return state
 }

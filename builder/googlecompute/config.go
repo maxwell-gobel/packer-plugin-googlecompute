@@ -254,7 +254,8 @@ type Config struct {
 	// The time to wait for instance state changes. Defaults to "5m".
 	StateTimeout time.Duration `mapstructure:"state_timeout" required:"false"`
 	// The region in which to launch the instance. Defaults to the region
-	// hosting the specified zone.
+	// hosting the specified zone. Required when `use_bulk_api` is true, in
+	// which case the zone is selected automatically within this region.
 	Region string `mapstructure:"region" required:"false"`
 	// The service account scopes for launched
 	// instance. Defaults to:
@@ -399,6 +400,17 @@ type Config struct {
 	// Example: `"us-central1-a"`
 	Zone string `mapstructure:"zone" required:"true"`
 
+	// Use the GCP Bulk VM creation API with automatic zone selection.
+	//
+	// When set to `true`, `region` must be specified and `zone` must be left
+	// empty. Compute Engine selects a zone within the region that has available
+	// capacity, which avoids single-zone quota and capacity failures.
+	//
+	// Note: `disk_attachment` entries that use `source_volume` or `replica_zones`
+	// are not supported in this mode, because they require a fixed zone. Use an
+	// explicit `zone` for those.
+	UseBulkAPI bool `mapstructure:"use_bulk_api" required:"false"`
+
 	// Time when the image is considered as deprecated.
 	// In UTC, in the following RFC3339 format: YYYY-MM-DDTHH:MM:SSZ.
 	// You can’t specify a date in the past.
@@ -464,7 +476,9 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, error) {
 			errs = packersdk.MultiErrorAppend(errs, err...)
 			continue
 		}
-		bd.Zone = c.Zone
+		if !c.UseBulkAPI {
+			bd.Zone = c.Zone
+		}
 		c.ExtraBlockDevices[i] = bd
 	}
 
@@ -680,14 +694,35 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, error) {
 			errs, errors.New("a source_image or source_image_family must be specified"))
 	}
 
-	if c.Zone == "" {
-		errs = packersdk.MultiErrorAppend(
-			errs, errors.New("a zone must be specified"))
-	}
-	if c.Region == "" && len(c.Zone) > 2 {
-		// get region from Zone
-		region := c.Zone[:len(c.Zone)-2]
-		c.Region = region
+	if c.UseBulkAPI {
+		if c.Zone != "" {
+			errs = packersdk.MultiErrorAppend(
+				errs, errors.New("zone must not be set when use_bulk_api is true; the zone is selected automatically within region"))
+		}
+		if c.Region == "" {
+			errs = packersdk.MultiErrorAppend(
+				errs, errors.New("region must be specified when use_bulk_api is true"))
+		}
+		for _, bd := range c.ExtraBlockDevices {
+			if bd.SourceVolume != "" {
+				errs = packersdk.MultiErrorAppend(
+					errs, errors.New("disk_attachment with source_volume requires an explicit zone and cannot be used with use_bulk_api"))
+			}
+			if len(bd.ReplicaZones) != 0 {
+				errs = packersdk.MultiErrorAppend(
+					errs, errors.New("disk_attachment with replica_zones requires an explicit zone and cannot be used with use_bulk_api"))
+			}
+		}
+	} else {
+		if c.Zone == "" {
+			errs = packersdk.MultiErrorAppend(
+				errs, errors.New("a zone must be specified"))
+		}
+		if c.Region == "" && len(c.Zone) > 2 {
+			// get region from Zone
+			region := c.Zone[:len(c.Zone)-2]
+			c.Region = region
+		}
 	}
 
 	warns, err := c.Authentication.Prepare()

@@ -32,9 +32,9 @@ func (s *StepTeardownInstance) Run(ctx context.Context, state multistep.StateBag
 	}
 
 	ui.Say("Deleting instance...")
-	instanceLog, _ := driver.GetSerialPortOutput(config.Zone, name)
+	instanceLog, _ := driver.GetSerialPortOutput(stateZone(state), name)
 	state.Put("instance_log", instanceLog)
-	errCh, err := driver.DeleteInstance(config.Zone, name)
+	errCh, err := driver.DeleteInstance(stateZone(state), name)
 	if err == nil {
 		select {
 		case err = <-errCh:
@@ -66,7 +66,7 @@ func (s *StepTeardownInstance) Cleanup(state multistep.StateBag) {
 	var err error
 
 	ui.Say("Deleting disk...")
-	errCh := driver.DeleteDisk(config.Zone, config.DiskName)
+	errCh := driver.DeleteDisk(stateZone(state), config.DiskName)
 	select {
 	case err = <-errCh:
 	case <-time.After(config.StateTimeout):
@@ -78,7 +78,7 @@ func (s *StepTeardownInstance) Cleanup(state multistep.StateBag) {
 			"Error deleting disk. Please delete it manually.\n\n"+
 				"DiskName: %s\n"+
 				"Zone: %s\n"+
-				"Error: %s", config.DiskName, config.Zone, err))
+				"Error: %s", config.DiskName, stateZone(state), err))
 	}
 
 	ui.Message("Disk has been deleted!")

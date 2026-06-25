@@ -587,6 +587,29 @@ func (d *driverGCE) GetInternalIP(zone, name string) (string, error) {
 	return "", nil
 }
 
+func (d *driverGCE) GetInstanceZone(name string) (string, error) {
+	call := d.service.Instances.AggregatedList(d.projectId).
+		Filter(fmt.Sprintf("name = %q", name))
+	list, err := call.Do()
+	if err != nil {
+		return "", err
+	}
+
+	for _, scoped := range list.Items {
+		for _, inst := range scoped.Instances {
+			if inst.Name != name {
+				continue
+			}
+			// inst.Zone is a full URL, e.g.
+			// https://www.googleapis.com/compute/v1/projects/p/zones/us-east1-b
+			parts := strings.Split(inst.Zone, "/")
+			return parts[len(parts)-1], nil
+		}
+	}
+
+	return "", fmt.Errorf("could not determine zone for instance %q", name)
+}
+
 func (d *driverGCE) GetSerialPortOutput(zone, name string) (string, error) {
 	output, err := d.service.Instances.GetSerialPortOutput(d.projectId, zone, name).Do()
 	if err != nil {
@@ -646,37 +669,15 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 	}
 
 	// Build up the metadata
-	metadata := make([]*compute.MetadataItems, 0, len(c.Metadata))
-	for k, v := range c.Metadata {
-		vCopy := v
-		metadata = append(metadata, &compute.MetadataItems{
-			Key:   k,
-			Value: &vCopy,
-		})
-	}
+	metadata := buildMetadataItems(c)
 
-	var guestAccelerators []*compute.AcceleratorConfig
-	if c.AcceleratorCount > 0 {
-		ac := &compute.AcceleratorConfig{
-			AcceleratorCount: c.AcceleratorCount,
-			AcceleratorType:  c.AcceleratorType,
-		}
-		guestAccelerators = append(guestAccelerators, ac)
-	}
+	guestAccelerators := buildGuestAccelerators(c)
 
 	// Configure the instance's service account. If the user has set
 	// disable_default_service_account, then the default service account
 	// will not be used. If they also do not set service_account_email, then
 	// the instance will be created with no service account or scopes.
-	serviceAccount := &compute.ServiceAccount{}
-	if !c.DisableDefaultServiceAccount {
-		serviceAccount.Email = "default"
-		serviceAccount.Scopes = c.Scopes
-	}
-	if c.ServiceAccountEmail != "" {
-		serviceAccount.Email = c.ServiceAccountEmail
-		serviceAccount.Scopes = c.Scopes
-	}
+	serviceAccount := buildServiceAccount(c)
 
 	var diskEncryptionKey *compute.CustomerEncryptionKey
 	if c.DiskEncryptionKey != nil {
@@ -731,10 +732,7 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 				NetworkIP:     c.NetworkIP,
 			},
 		},
-		Scheduling: &compute.Scheduling{
-			OnHostMaintenance: c.OnHostMaintenance,
-			Preemptible:       c.Preemptible,
-		},
+		Scheduling: buildScheduling(c),
 		ServiceAccounts: []*compute.ServiceAccount{
 			serviceAccount,
 		},
@@ -748,38 +746,15 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 		}
 	}
 
-	if c.MaxRunDurationInSeconds > 0 {
-		log.Printf("[DEBUG] setting max run duration to %d seconds", c.MaxRunDurationInSeconds)
-		instance.Scheduling.MaxRunDuration = &compute.Duration{
-			Seconds: c.MaxRunDurationInSeconds,
-		}
-		log.Printf("[DEBUG] setting instance termination action to %s", c.InstanceTerminationAction)
-		instance.Scheduling.InstanceTerminationAction = c.InstanceTerminationAction
-	}
-
 	// Shielded VMs configuration. If the user has set at least one of the
 	// options, the shielded VM configuration will reflect that. If they
 	// don't set any of the options the settings will default to the ones
 	// of the source compute image which is used for creating the virtual
 	// machine.
-	shieldedInstanceConfig := &compute.ShieldedInstanceConfig{
-		EnableSecureBoot:          c.EnableSecureBoot,
-		EnableVtpm:                c.EnableVtpm,
-		EnableIntegrityMonitoring: c.EnableIntegrityMonitoring,
-	}
 	shieldedUiMessage := ""
-	if c.EnableSecureBoot || c.EnableVtpm || c.EnableIntegrityMonitoring {
-		instance.ShieldedInstanceConfig = shieldedInstanceConfig
+	if sc := buildShieldedInstanceConfig(c); sc != nil {
+		instance.ShieldedInstanceConfig = sc
 		shieldedUiMessage = " Shielded VM"
-	}
-
-	// Node affinity configuration. For example, if you want to build on sole
-	// tenancy nodes.
-	if len(c.NodeAffinities) > 0 {
-		instance.Scheduling.NodeAffinities = make([]*compute.SchedulingNodeAffinity, 0, len(c.NodeAffinities))
-		for _, nodeAffinity := range c.NodeAffinities {
-			instance.Scheduling.NodeAffinities = append(instance.Scheduling.NodeAffinities, nodeAffinity.ComputeType())
-		}
 	}
 
 	d.ui.Message(fmt.Sprintf("Requesting%s instance creation...", shieldedUiMessage))
@@ -791,6 +766,111 @@ func (d *driverGCE) RunInstance(c *InstanceConfig) (<-chan error, error) {
 	errCh := make(chan error, 1)
 	go func() {
 		_ = waitForState(errCh, "DONE", d.refreshZoneOp(zone.Name, op))
+	}()
+	return errCh, nil
+}
+
+func (d *driverGCE) RunInstanceInRegion(c *InstanceConfig) (<-chan error, error) {
+	// In bulk mode the machine type and disk types are relative (no zone
+	// qualifier): Compute Engine resolves them in whichever zone it selects.
+	networkId, subnetworkId, err := GetNetworking(c)
+	if err != nil {
+		return nil, err
+	}
+
+	var accessconfig *compute.AccessConfig
+	if !c.OmitExternalIP {
+		accessconfig = &compute.AccessConfig{
+			Name: "AccessConfig created by Packer",
+			Type: "ONE_TO_ONE_NAT",
+		}
+		if c.Address != "" {
+			address, err := d.service.Addresses.Get(d.projectId, c.Region, c.Address).Do()
+			if err != nil {
+				return nil, err
+			}
+			accessconfig.NatIP = address.Address
+		}
+	}
+
+	var diskEncryptionKey *compute.CustomerEncryptionKey
+	if c.DiskEncryptionKey != nil {
+		log.Printf("[DEBUG] using customer-managed encryption key for boot disk, KmsKeyName=%s, RawKey=%s",
+			c.DiskEncryptionKey.KmsKeyName, c.DiskEncryptionKey.RawKey)
+		diskEncryptionKey = c.DiskEncryptionKey.ComputeType()
+	} else {
+		log.Printf("[DEBUG] using google-managed encryption key for boot disk")
+	}
+
+	// Boot disk created inline with a relative diskType (no zone qualifier).
+	computeDisks := []*compute.AttachedDisk{
+		{
+			Type:              "PERSISTENT",
+			Mode:              "READ_WRITE",
+			Kind:              "compute#attachedDisk",
+			Boot:              true,
+			AutoDelete:        false,
+			DiskEncryptionKey: diskEncryptionKey,
+			InitializeParams: &compute.AttachedDiskInitializeParams{
+				SourceImage: c.Image.SelfLink,
+				DiskName:    c.DiskName,
+				DiskSizeGb:  c.DiskSizeGb,
+				DiskType:    c.DiskType,
+			},
+		},
+	}
+	for _, disk := range c.ExtraBlockDevices {
+		computeDisks = append(computeDisks, disk.GenerateInlineDiskAttachment())
+	}
+
+	props := &compute.InstanceProperties{
+		AdvancedMachineFeatures: &compute.AdvancedMachineFeatures{
+			EnableNestedVirtualization: c.EnableNestedVirtualization,
+		},
+		Description:       c.Description,
+		Disks:             computeDisks,
+		GuestAccelerators: buildGuestAccelerators(c),
+		Labels:            c.Labels,
+		MachineType:       c.MachineType,
+		Metadata:          &compute.Metadata{Items: buildMetadataItems(c)},
+		MinCpuPlatform:    c.MinCpuPlatform,
+		NetworkInterfaces: []*compute.NetworkInterface{
+			{
+				AccessConfigs: []*compute.AccessConfig{accessconfig},
+				Network:       networkId,
+				Subnetwork:    subnetworkId,
+				NetworkIP:     c.NetworkIP,
+			},
+		},
+		Scheduling:      buildScheduling(c),
+		ServiceAccounts: []*compute.ServiceAccount{buildServiceAccount(c)},
+		Tags:            &compute.Tags{Items: c.Tags},
+	}
+	if len(c.ResourceManagerTags) > 0 {
+		props.ResourceManagerTags = c.ResourceManagerTags
+	}
+	if sc := buildShieldedInstanceConfig(c); sc != nil {
+		props.ShieldedInstanceConfig = sc
+	}
+
+	resource := &compute.BulkInsertInstanceResource{
+		Count:    1,
+		MinCount: 1,
+		PerInstanceProperties: map[string]compute.BulkInsertInstanceResourcePerInstanceProperties{
+			c.Name: {Name: c.Name},
+		},
+		InstanceProperties: props,
+	}
+
+	d.ui.Message(fmt.Sprintf("Requesting bulk instance creation in region %s (automatic zone selection)...", c.Region))
+	op, err := d.service.RegionInstances.BulkInsert(d.projectId, c.Region, resource).Do()
+	if err != nil {
+		return nil, err
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_ = waitForState(errCh, "DONE", d.refreshRegionOp(c.Region, op))
 	}()
 	return errCh, nil
 }

@@ -40,7 +40,7 @@ func (s *StepImportOSLoginSSHKey) Run(ctx context.Context, state multistep.State
 	driver := state.Get("driver").(common.Driver)
 	ui := state.Get("ui").(packersdk.Ui)
 
-	osLoginEnabledAtProject, err := driver.GetProjectMetadata(config.Zone, EnableOSLoginKey)
+	osLoginEnabledAtProject, err := driver.GetProjectMetadata(stateZone(state), EnableOSLoginKey)
 	if err != nil {
 		log.Printf("failed to get project metadata: %s", err)
 	}

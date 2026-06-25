@@ -66,6 +66,11 @@ type Driver interface {
 	// GetNatIP gets the NAT IP address for the instance.
 	GetNatIP(zone, name string) (string, error)
 
+	// GetInstanceZone returns the short zone name where the named instance
+	// currently resides. Used after a bulk insert to discover the
+	// automatically selected zone.
+	GetInstanceZone(name string) (string, error)
+
 	// GetSerialPortOutput gets the Serial Port contents for the instance.
 	GetSerialPortOutput(zone, name string) (string, error)
 
@@ -78,6 +83,11 @@ type Driver interface {
 
 	// RunInstance takes the given config and launches an instance.
 	RunInstance(*InstanceConfig) (<-chan error, error)
+
+	// RunInstanceInRegion launches a single instance using the Bulk VM API
+	// with automatic zone selection within c.Region. The chosen zone is
+	// discovered afterward via GetInstanceZone.
+	RunInstanceInRegion(*InstanceConfig) (<-chan error, error)
 
 	// WaitForInstance waits for an instance to reach the given state.
 	WaitForInstance(state, zone, name string) <-chan error

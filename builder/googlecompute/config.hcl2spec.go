@@ -142,6 +142,7 @@ type FlatConfig struct {
 	OSLoginSSHKeyExpireAfter     *string                           `mapstructure:"oslogin_ssh_key_expire_after" required:"false" cty:"oslogin_ssh_key_expire_after" hcl:"oslogin_ssh_key_expire_after"`
 	WaitToAddSSHKeys             *string                           `mapstructure:"wait_to_add_ssh_keys" cty:"wait_to_add_ssh_keys" hcl:"wait_to_add_ssh_keys"`
 	Zone                         *string                           `mapstructure:"zone" required:"true" cty:"zone" hcl:"zone"`
+	UseBulkAPI                   *bool                             `mapstructure:"use_bulk_api" required:"false" cty:"use_bulk_api" hcl:"use_bulk_api"`
 	DeprecateAt                  *string                           `mapstructure:"deprecate_at" required:"false" cty:"deprecate_at" hcl:"deprecate_at"`
 	ObsoleteAt                   *string                           `mapstructure:"obsolete_at" required:"false" cty:"obsolete_at" hcl:"obsolete_at"`
 	DeleteAt                     *string                           `mapstructure:"delete_at" required:"false" cty:"delete_at" hcl:"delete_at"`
@@ -292,6 +293,7 @@ func (*FlatConfig) HCL2Spec() map[string]hcldec.Spec {
 		"oslogin_ssh_key_expire_after":    &hcldec.AttrSpec{Name: "oslogin_ssh_key_expire_after", Type: cty.String, Required: false},
 		"wait_to_add_ssh_keys":            &hcldec.AttrSpec{Name: "wait_to_add_ssh_keys", Type: cty.String, Required: false},
 		"zone":                            &hcldec.AttrSpec{Name: "zone", Type: cty.String, Required: false},
+		"use_bulk_api":                    &hcldec.AttrSpec{Name: "use_bulk_api", Type: cty.Bool, Required: false},
 		"deprecate_at":                    &hcldec.AttrSpec{Name: "deprecate_at", Type: cty.String, Required: false},
 		"obsolete_at":                     &hcldec.AttrSpec{Name: "obsolete_at", Type: cty.String, Required: false},
 		"delete_at":                       &hcldec.AttrSpec{Name: "delete_at", Type: cty.String, Required: false},

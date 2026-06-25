@@ -177,7 +177,7 @@ func (s *StepCreateInstance) Run(ctx context.Context, state multistep.StateBag) 
 		addmap(metadataForInstance, metadataNoSSHKeys)
 	}
 
-	errCh, err = d.RunInstance(&common.InstanceConfig{
+	instanceConfig := &common.InstanceConfig{
 		AcceleratorType:              c.AcceleratorType,
 		AcceleratorCount:             c.AcceleratorCount,
 		Address:                      c.Address,
@@ -214,7 +214,13 @@ func (s *StepCreateInstance) Run(ctx context.Context, state multistep.StateBag) 
 		ResourceManagerTags:          c.ResourceManagerTags,
 		Zone:                         c.Zone,
 		NetworkIP:                    c.NetworkIP,
-	})
+	}
+
+	if c.UseBulkAPI {
+		errCh, err = d.RunInstanceInRegion(instanceConfig)
+	} else {
+		errCh, err = d.RunInstance(instanceConfig)
+	}
 
 	if err == nil {
 		ui.Message("Waiting for creation operation to complete...")
@@ -234,9 +240,22 @@ func (s *StepCreateInstance) Run(ctx context.Context, state multistep.StateBag) 
 
 	ui.Message("Instance has been created!")
 
+	zone := c.Zone
+	if c.UseBulkAPI {
+		zone, err = d.GetInstanceZone(name)
+		if err != nil {
+			err := fmt.Errorf("Error determining selected zone for instance: %s", err)
+			state.Put("error", err)
+			ui.Error(err.Error())
+			return multistep.ActionHalt
+		}
+		ui.Message(fmt.Sprintf("Instance was created in automatically selected zone: %s", zone))
+	}
+	state.Put("zone", zone)
+
 	if s.Debug {
 		if name != "" {
-			ui.Message(fmt.Sprintf("Instance: %s started in %s", name, c.Zone))
+			ui.Message(fmt.Sprintf("Instance: %s started in %s", name, zone))
 		}
 	}
 
@@ -256,7 +275,7 @@ func (s *StepCreateInstance) Run(ctx context.Context, state multistep.StateBag) 
 
 		log.Printf("[DEBUG] %s wait is over. Adding SSH keys to existing instance...",
 			c.WaitToAddSSHKeys.String())
-		err = d.AddToInstanceMetadata(c.Zone, name, metadataSSHKeys)
+		err = d.AddToInstanceMetadata(zone, name, metadataSSHKeys)
 
 		if err != nil {
 			err := fmt.Errorf("Error adding SSH keys to existing instance: %s", err)
@@ -295,8 +314,13 @@ func (s *StepCreateInstance) Cleanup(state multistep.StateBag) {
 	driver := state.Get("driver").(common.Driver)
 	ui := state.Get("ui").(packersdk.Ui)
 
+	zone := config.Zone
+	if z, ok := state.GetOk("zone"); ok {
+		zone = z.(string)
+	}
+
 	ui.Say("Deleting instance...")
-	errCh, err := driver.DeleteInstance(config.Zone, name)
+	errCh, err := driver.DeleteInstance(zone, name)
 	if err == nil {
 		select {
 		case err = <-errCh:
@@ -318,7 +342,7 @@ func (s *StepCreateInstance) Cleanup(state multistep.StateBag) {
 	// Deleting the instance does not remove the boot disk. This cleanup removes
 	// the disk.
 	ui.Say("Deleting disk...")
-	errCh = driver.DeleteDisk(config.Zone, config.DiskName)
+	errCh = driver.DeleteDisk(zone, config.DiskName)
 	select {
 	case err = <-errCh:
 	case <-time.After(config.StateTimeout):
